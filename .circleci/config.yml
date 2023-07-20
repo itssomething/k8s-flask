@@ -115,18 +115,11 @@ jobs:
           command: |
             sudo apt install -y tar gzip curl
       - kubernetes/install-kubectl
-      - aws-eks/update-kubeconfig-with-authenticator:
-          cluster-name: << parameters.cluster-name >>
-          aws-region: << parameters.aws-region >>
-          install-kubectl: true
       - kubernetes/create-or-update-resource:
-          resource-file-path: ./kubernetes/deployment.yml
+          resource-file-path: ./kubernetes/deployment.yaml
           resource-name: deployment/k8s-flask
           get-rollout-status: true
           show-kubectl-command: true
-      - kubernetes/create-or-update-resource:
-          resource-file-path: ./kubernetes/aws-authen-cm.yml
-          resource-name: configmap/aws-auth
       - run:
           name: Test cluster
           command: |
