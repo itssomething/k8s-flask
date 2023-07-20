@@ -125,6 +125,10 @@ jobs:
             kubectl config view
             kubectl apply -f kubernetes/deployment.yaml
       - run:
+          name: Update pods
+          command: |
+            kubectl delete --all pods
+      - run:
           name: Test cluster
           command: |
             kubectl get services
