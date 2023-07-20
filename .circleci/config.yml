@@ -1,76 +1,163 @@
-jobs:
-  create-deployment:
-    executor: aws-eks/python3
-    parameters:
-      cluster-name:
-        description: |
-          Name of the EKS cluster
-        type: string
-    steps:
-      - checkout
-      - aws-eks/update-kubeconfig-with-authenticator:
-          cluster-name: << parameters.cluster-name >>
-          install-kubectl: true
-      - kubernetes/create-or-update-resource:
-          get-rollout-status: true
-          resource-file-path: deployment.json
-          resource-name: deployment/blue
-  create-service:
-    executor: aws-eks/python3
-    parameters:
-      cluster-name:
-        description: |
-          Name of the EKS cluster
-        type: string
-    steps:
-      - checkout
-      - aws-eks/update-kubeconfig-with-authenticator:
-          cluster-name: << parameters.cluster-name >>
-          install-kubectl: true
-      - kubernetes/create-or-update-resource:
-          resource-file-path: service.json
-          resource-name: service/bluegreenlb
-  create-small-cluster:
-    executor: aws-eks/python3
-    parameters:
-      cluster-name:
-        description: |
-          Name of the EKS cluster
-        type: string
-    steps:
-      - checkout
-      - aws-eks/install-aws-iam-authenticator:
-          release-tag: ''
-      - aws-eks/create-cluster:
-          cluster-name: << parameters.cluster-name >>
-          skip-kubectl-install: false
-          verbose: 3
-          node-type: t2.small
-          nodes-max: 2
-          ssh-access: false
-          ssh-public-key: ''
+version: 1.0
 
 orbs:
-  aws-eks: circleci/aws-eks@1.1.0
-  kubernetes: circleci/kubernetes@0.4.0
-version: 2.1
+  aws-eks: circleci/aws-eks@2.2.0
+  kubernetes: circleci/kubernetes@1.2.0
+
+jobs:
+  lint:
+    docker:
+      - image: python:3.8.0
+    working_directory: ~/repo
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - v1-dependencies-{{ checksum "requirements.txt" }}
+            - v1-dependencies-
+
+      - run:
+          name: Install python dependencies
+          command: |
+            python3 -m venv venv
+            . venv/bin/activate
+            make install
+            # Install hadolint
+            wget -O /bin/hadolint https://github.com/hadolint/hadolint/releases/download/v1.16.3/hadolint-Linux-x86_64 && \
+              chmod +x /bin/hadolint
+
+      - save_cache:
+          paths:
+            - ./venv
+          key: v1-dependencies-{{ checksum "requirements.txt" }}
+
+      - run:
+          name: run lint
+          command: |
+            . venv/bin/activate
+            make lint
+  build:
+    docker:
+      - image: cimg/python:3.11.4
+    parameters:
+      cluster-name:
+        description: |
+          Name of the EKS cluster
+        type: string
+        default: "EKS-Demo-Cluster"
+      aws-region:
+        description: |
+          AWS region
+        type: string
+        default: "us-east-1"
+    steps:
+      - checkout
+      - setup_remote_docker:
+          version: 20.10.14
+          docker_layer_caching: true
+      - run:
+          name: Install dependencies
+          command: |
+            sudo apt install -y tar gzip curl
+      - kubernetes/install-kubectl
+      - run:
+          name: Configure variable
+          command: |
+            echo AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID >> .env
+            echo AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY >> .env
+            echo DOCKER_HUB_USERNAME=$DOCKER_HUB_USERNAME >> .env
+            echo DOCKER_HUB_PASSWORD=$DOCKER_HUB_PASSWORD >> .env
+            cat .env
+      - run:
+          name: Docker login
+          command: |
+            docker login -u "$DOCKER_HUB_USERNAME" -p $(echo "$DOCKER_HUB_PASSWORD")
+      - run:
+          name: Load Docker image layer cache
+          command: |
+            set +o pipefail
+            docker load -i caches/k8s-flask.tar | true
+      - run:
+          name: Build application Docker image
+          command: docker build --cache-from=k8s-flask -t k8s-flask .
+      - run:
+          name: Save Docker image layer cache
+          command: |
+            chmod -R 777 ../
+            mkdir -p caches
+            docker save -o caches/k8s-flask.tar k8s-flask
+      - run:
+          name: Push Docker Image
+          command: |
+            docker tag k8s-flask manhvuduc/k8s-flask
+            docker push manhvuduc/k8s-flask
+  deploy:
+    docker:
+      - image: cimg/python:3.11.4
+    parameters:
+      cluster-name:
+        description: |
+          Name of the EKS cluster
+        type: string
+        default: "EKS-Demo-Cluster"
+      aws-region:
+        description: |
+          AWS region
+        type: string
+        default: "us-east-1"
+    steps:
+      - checkout
+      - setup_remote_docker:
+          version: 20.10.14
+          docker_layer_caching: true
+      - run:
+          name: Install dependencies
+          command: |
+            sudo apt install -y tar gzip curl
+      - kubernetes/install-kubectl
+      - aws-eks/update-kubeconfig-with-authenticator:
+          cluster-name: << parameters.cluster-name >>
+          aws-region: << parameters.aws-region >>
+          install-kubectl: true
+      - kubernetes/create-or-update-resource:
+          resource-file-path: ./kubernetes/deployment.yml
+          resource-name: deployment/k8s-flask
+          get-rollout-status: true
+          show-kubectl-command: true
+      - kubernetes/create-or-update-resource:
+          resource-file-path: ./kubernetes/aws-authen-cm.yml
+          resource-name: configmap/aws-auth
+      - run:
+          name: Test cluster
+          command: |
+            kubectl get nodes
+            kubectl get deployment
+            kubectl get pod -o wide
+            kubectl get services
+      - run:
+          name: Cleaning up
+          command: docker system prune
+
 workflows:
-  deployment:
+  version: 2
+  build-deploy:
     jobs:
-      - create-small-cluster:
-          cluster-name: eks-demo-deployment
-      - create-service:
-          cluster-name: eks-demo-deployment
+      - lint
+      - build:
+          cluster-name: EKS-Demo-Cluster
+          aws-region: $AWS_DEFAULT_REGION
+          filters:
+            branches:
+              only:
+                - master
           requires:
-            - create-small-cluster
-      - create-deployment:
-          cluster-name: eks-demo-deployment
+            - "lint"
+      - deploy:
+          cluster-name: EKS-Demo-Cluster
+          aws-region: $AWS_DEFAULT_REGION
+          filters:
+            branches:
+              only:
+                - master
           requires:
-            - create-service
-      - aws-eks/update-container-image:
-          cluster-name: eks-demo-deployment
-          container-image-updates: 'blue=andresaaap/testblueimage:latest'
-          record: true
-          requires:
-            - create-deployment
-          resource-name: deployment/blue
+            - "build"
