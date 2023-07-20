@@ -127,9 +127,6 @@ jobs:
       - run:
           name: Test cluster
           command: |
-            kubectl get nodes
-            kubectl get deployment
-            kubectl get pod -o wide
             kubectl get services
       - run:
           name: Cleaning up
