@@ -118,7 +118,7 @@ jobs:
       - run:
           name: Apply k8s config
           command: |
-            kubectl config view
+            aws sts get-caller-identity
             kubectl apply -f kubernetes/deployment.yaml
       - run:
           name: Test cluster
