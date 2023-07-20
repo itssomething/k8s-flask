@@ -4,4 +4,4 @@ app = Flask(__name__)
 def hello_world():
     return "<p>This is a Udacity Cloud Devop Capstone new application version 123</p>"
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', debug=True)
+    app.run(host='0.0.0.0', debug=True, port=8080)
