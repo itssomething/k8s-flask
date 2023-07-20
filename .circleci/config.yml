@@ -1,4 +1,4 @@
-version: 1.0
+version: 2.1
 
 orbs:
   aws-eks: circleci/aws-eks@2.2.0
@@ -140,7 +140,7 @@ jobs:
 
 workflows:
   version: 2
-  default:
+  build-deploy:
     jobs:
       - lint
       - build:
