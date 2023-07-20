@@ -7,7 +7,7 @@ WORKDIR /app
 # Copying all the application files to the working directory
 COPY . .
 # Install all the dependencies required to run the Flask application
-RUN pip install -r requirements.txt
+        RUN pip install -r requirements.txt
 
 # Expose the Docker container for the application to run on port 8080
 EXPOSE 8080
