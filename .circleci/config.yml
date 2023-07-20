@@ -115,11 +115,10 @@ jobs:
           command: |
             sudo apt install -y tar gzip curl
       - kubernetes/install-kubectl
-      - kubernetes/create-or-update-resource:
-          resource-file-path: ./kubernetes/deployment.yaml
-          resource-name: deployment/k8s-flask
-          get-rollout-status: true
-          show-kubectl-command: true
+      - run:
+          name: Apply k8s config
+          command: |
+            kubectl apply -f kubernetes/deployment.yaml
       - run:
           name: Test cluster
           command: |
